@@ -1,195 +1,126 @@
-# Spatio-Textual Secure Search System
+# Spatio-Textual Secure Search System (VPBRQSupL-inspired)
 
-本项目实现了一个安全的空间文本数据搜索系统，旨在对包含地理位置和关键词信息的数据集进行加密索引构造、分布式密钥生成与查询处理。整个系统利用混淆布隆过滤器（Garbled Bloom Filter, GBF）、分布式多方计算密钥生成（DMPF）以及前缀受限伪随机函数（PRF）技术，实现了数据的隐私保护和查询认证。
-
----
-
-## 目录
-
-* [项目简介](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E9%A1%B9%E7%9B%AE%E7%AE%80%E4%BB%8B)
-* [主要功能](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E4%B8%BB%E8%A6%81%E5%8A%9F%E8%83%BD)
-* [项目结构](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E9%A1%B9%E7%9B%AE%E7%BB%93%E6%9E%84)
-* [安装与依赖](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E5%AE%89%E8%A3%85%E4%B8%8E%E4%BE%9D%E8%B5%96)
-* [配置说明](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E)
-* [使用方法](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E4%BD%BF%E7%94%A8%E6%96%B9%E6%B3%95)
-* [测试方法](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E6%B5%8B%E8%AF%95%E6%96%B9%E6%B3%95)
-* [开发与扩展](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E5%BC%80%E5%8F%91%E4%B8%8E%E6%89%A9%E5%B1%95)
-* [许可证](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E8%AE%B8%E5%8F%AF%E8%AF%81)
-* [联系方式](https://chatgpt.com/c/67d42c21-0c1c-8006-ae41-e05261beb977#%E8%81%94%E7%B3%BB%E6%96%B9%E5%BC%8F)
+本项目实现了一个“可验证、抑制泄露”的空间-文本加密检索系统，灵感来源于 IEEE TIFS 2024《Beyond Result Verification: Efficient Privacy-Preserving Spatial Keyword Query With Suppressed Leakage》。系统以混淆布隆过滤器（GBF）、分布式多点函数（DMPF）、前缀受限 PRF（FC）和 XOR 同态 PRF（FX）为核心，支持在加密索引上进行多关键字查询，并完成“结果正确性”轻量验证，证明大小与数据规模无关。
 
 ---
 
-## 项目简介
+## 主要特性
 
-该系统主要面向具有空间信息（经纬度）和文本关键词的数据集（如美国高校信息数据集）。系统通过以下步骤完成安全查询：
-
-1. **数据预处理** ：读取 CSV 数据，并提取记录中的 ID、经纬度信息及关键词，构造三元组记录。
-2. **GBF 编码** ：利用混淆布隆过滤器对每条记录的空间信息和关键词进行编码，生成加密索引。
-3. **索引构造** ：基于加密后的 GBF 数据，结合一次性加密密钥和前缀受限 PRF，构建认证索引以及验证标签。
-4. **查询处理** ：将用户输入的查询进行编码分段，生成密钥份额，并利用分布式多方计算（DMPF）计算查询结果，最后通过各参与方结果的按位异或组合还原出匹配记录。
-
----
-
-## 主要功能
-
-* **分布式密钥生成与计算**
-
-  使用 `DMPF.py` 中的 `Gen` 和 `Eval` 函数生成用于多方计算的密钥份额，并根据分段索引计算各个密钥份额对应的值。
-* **混淆布隆过滤器 (GBF) 实现**
-
-  通过 `GBF.py` 模块实现布隆过滤器的添加和查询操作，能够生成固定长度的指纹，并使用随机份额保护数据隐私。
-* **数据集预处理**
-
-  `prepare_dataset.py` 提供了读取 CSV 文件并转换为三元组记录的功能，同时在 `convert_dataset.py` 中将记录转换为包含 GBF 编码的对象。
-* **查询编码与分段**
-
-  `QueryUtils.py` 中的函数将用户查询转换为多个查询块，并支持将查询块按固定长度分割为多个段，便于后续密钥计算。
-* **认证索引构造与查询**
-
-  `SetupProcess.py` 实现了对数据集构造认证索引的流程，同时生成一次性加密密钥及验证标签；`SearchProcess.py` 则基于认证索引实现了安全查询处理流程。
-* **查询结果组合与解密**
-
-  在 `main.py` 与 `main_test.py` 中，展示了如何将多方计算得到的结果分享按位异或组合，以及利用一次性密钥解密恢复出原始明文内积值，再判断匹配记录。
+- 抑制泄露的密态查询
+  - 关键词采用 GBF 编码；云端按字节 XOR 聚合仅返回对象级向量分享与轻量证明份额。
+  - DMPF 以“按位选择比特分享”隐藏访问/搜索模式，参与方结果按位 XOR 合并。
+- 轻量结果验证（FX+HMAC 等式）
+  - 客户端用 Kv→Ki 派生密钥，对解密后的对象向量进行 FX 聚合，并与 HMAC 聚合项组成等式校验。
+  - 证明大小与对象数量无关。
+- 端到端 Demo
+  - `offline_demo.py` 完成配置→索引构建→密态查询→解密匹配→严格验证→可读结果列表。
+- 关键词标准化
+  - 统一大小写与字符集（仅字母数字），保证数据侧与查询侧一致性。
 
 ---
 
-## 项目结构
+## 仓库结构
 
-* **DMPF.py**
-
-  实现分布式多方计算的密钥份额生成和评估函数，用于保护查询过程中的数据隐私。
-* **GBF.py**
-
-  实现混淆布隆过滤器（Garbled Bloom Filter）的添加、查询和指纹生成操作。
-* **prepare_dataset.py**
-
-  读取 CSV 数据文件（例如 `us-colleges-and-universities.csv`），预处理并提取记录中的关键信息。
-* **convert_dataset.py**
-
-  将预处理后的字典列表转换为包含 GBF 编码对象的 SpatioTextualRecord 列表。
-* **QueryUtils.py**
-
-  包含查询编码、分段及识别特殊查询块的工具函数。
-* **SearchProcess.py**
-
-  根据认证索引实现查询处理流程，包括密钥评估、加密矩阵点积计算和结果组合。
-* **SetupProcess.py**
-
-  完成认证索引构造，生成一次性加密密钥、验证标签和前缀受限 PRF 的相关密钥。
-* **main.py**
-
-  系统主入口，读取数据集、构造认证索引、提示用户查询并展示最终查询结果。
-* **main_test.py**
-
-  测试入口，展示了完整的查询、结果分享组合及解密过程，并判断匹配记录。
-* **conFig.ini**
-
-  配置文件，定义系统参数如安全参数、GBF 的大小、哈希函数个数、ψ 参数以及前缀长度等。
+- `GBF.py`：GBF 指纹/添加/查询。
+- `DMPF.py`：按位选择比特分享的 DMPF（`Gen(security_param, indices, domain_size, U)` / `Eval(key,j)`）。
+- `SetupProcess.py`：构建认证索引（I_spa/I_tex）、一次性加密（Ke）、列聚合标签（sigma）、Kv→Ki 派生、XOR 同态 PRF FX。
+- `SearchProcess.py`：仅关键词部分的按字节 XOR 聚合与证明份额生成（可扩展空间部分）。
+- `convert_dataset.py`：记录对象化，标准化分词后逐词写入关键词 GBF；空间 GBF 保持接口。
+- `QueryUtils.py`：查询编码/填充、规范化工具（`tokenize_normalized`）。
+- `verification.py`：
+  - `build_integrity_tags/verify_integrity`：离线完整性标签（HMAC 列标签）。
+  - `verify_fx_hmac`：严格验证（FX(Ki,·)+HMAC 等式）。
+- `offline_demo.py`：端到端演示入口。
+- `conFig.ini`：参数配置。
 
 ---
 
-## 安装与依赖
+## 安装与运行
 
-该项目基于 Python 实现，建议使用 Python 3.7 及以上版本。所需主要依赖库如下：
-
-* **pandas** ：用于数据处理与 CSV 文件读取。
-* **numpy** ：用于数值计算与矩阵操作。
-* **hashlib & hmac** ：提供安全哈希函数和消息认证代码（HMAC）。
-* **os, struct, math** ：Python 标准库模块。
-
-在安装前，请确保你的 Python 环境中已安装上述依赖库，例如使用 pip：
+- 依赖：Python 3.10+，`pandas`
 
 ```bash
-pip install pandas numpy
+pip install pandas
+```
+
+- 运行 Demo（非交互输入）
+
+```bash
+echo ORLANDO | python -u offline_demo.py
+```
+
+或传参/交互：
+
+```bash
+python -u offline_demo.py "ORLANDO"
 ```
 
 ---
 
-## 配置说明
+## 配置说明（conFig.ini）
 
-配置文件 `conFig.ini` 中包含以下参数：
-
-* **general**
-  * `lambda`: 安全参数（例如 16 字节，对应 128 位安全性）。
-  * `s`: 用于前缀长度计算的参数。
-* **spatial_bloom_filter**
-  * `size`: 空间 GBF 的大小（块数）。
-  * `hash_count`: 空间 GBF 使用的哈希函数个数。
-  * `psi`: 每个单元存储比特数（通常为 8 的倍数）。
-* **keyword_bloom_filter**
-  * `size`: 关键词 GBF 的大小（块数）。
-  * `hash_count`: 关键词 GBF 使用的哈希函数个数。
-  * `psi`: 参数，与空间 GBF 一致。
-
-你可以根据实际数据量和安全需求调整这些参数。
+- `general.lambda`：安全参数（字节数，默认 16）。
+- `general.s`：前缀长度参数（用于 FC 受限密钥）。
+- `keyword_bloom_filter.size/hash_count/psi`：关键词 GBF 长度、哈希个数、单元比特数。
+- `spatial_bloom_filter.*`：空间 GBF 参数（当前 Demo 未启用，可扩展）。
+- `suppression.enable_padding/max_r_blocks/enable_blinding`：查询块填充与盲化开关（默认开启）。
 
 ---
 
-## 使用方法
+## 工作流（关键词查询）
 
-1. **数据准备**
-
-   将数据集 CSV 文件（如 `us-colleges-and-universities.csv`）放置于项目根目录或指定路径。
-2. **预处理与索引构造**
-
-   运行 `main.py` 脚本，该脚本会调用 `prepare_dataset.py` 与 `convert_dataset.py` 进行数据预处理，随后利用 `SetupProcess.py` 构造认证索引及生成密钥。
-3. **查询处理**
-
-   在终端中输入查询内容，系统将调用 `SearchProcess.py` 处理查询，生成各参与方的结果分享，并通过异或组合还原查询结果。
-4. **结果输出**
-
-   系统最终输出经过组合与解密的查询结果，以及匹配的记录三元组（ID、经纬度和关键词）。
-
-运行命令示例：
-
-```bash
-python main.py
-```
-
-或使用测试入口：
-
-```bash
-python main_test.py
-```
+1. 预处理
+   - 读取 CSV（如 `us-colleges-and-universities.csv`），抽取 `IPEDSID/Geo Point/NAME/ADDRESS/CITY/STATE`。
+   - 标准化分词（大写+仅字母数字），逐词写入关键词 GBF；空间 GBF 保留接口。
+2. 索引构建（Setup）
+   - 一次性加密：`Ke` 生成每对象 pad，按列异或得到 `I_tex`（加密 GBF 矩阵）。
+   - 前缀受限 PRF：`Kv = FC.Cons(K_main, v)`，`Ki = FC.Eval(Kv, i)`。
+   - 列标签：`sigma[j] = XOR_i FX(Ki, I[:,j]) XOR HMAC(Kh,(j+m1)||cat_ids)`。
+3. 查询（Search）
+   - 标准化查询词；每词算 GBF 位置集合 S。
+   - DMPF 生成按位选择比特分享；云端对选列执行按字节 XOR，返回“对象级向量份额”与“证明份额”。
+4. 合并与解密（客户端）
+   - XOR 合并各方份额，得到每词的对象级聚合向量与证明；
+   - 用 `Ke` 在相同选列上累积 pad 并解密；与 `fingerprint(token)` 对比（AND 语义）得到命中对象；
+5. 严格验证（FX+HMAC）
+   - 校验 `combined_proof == XOR_i FX(Ki,res[i]) XOR XOR_i FX(Ki,pad_acc(i)) XOR N_S,ID`。
 
 ---
 
-## 测试方法
+## 性能提示
 
-项目中提供了 `main_test.py` 作为测试入口，展示了完整的查询流程及解密验证过程。你可以修改查询输入、数据集文件路径等参数进行调试和验证。
-
----
-
-## 开发与扩展
-
-* **多方计算**
-
-  当前系统默认参与方数量为 3，若需要扩展为更多参与方，可调整配置参数及相应的密钥生成逻辑。
-* **安全性扩展**
-
-  可引入更复杂的前缀受限 PRF 及支持 XOR 同态性的伪随机函数，进一步提升系统安全性。
-* **数据集扩展**
-
-  数据预处理部分支持 CSV 格式数据，后续可增加对其他格式（如 JSON、SQL 数据库）的支持。
-* **前端展示**
-
-  可与前端界面结合，提供友好的查询交互界面和可视化展示。
+- 完整校验包含大量 HMAC/PRF 与按字节 XOR，Python 端 Demo 会牺牲速度以保证正确性与可读性。
+- 提速思路（可选）：仅遍历选列、将 `I_tex/sigma` 向量化成 `numpy.uint8`、缓存 Ki/PRF 块、预存关键词 pad 段等。
 
 ---
 
-## 许可证
+## 开发迭代记录
 
-本项目采用 [MIT License](https://opensource.org/licenses/MIT) 开源协议，欢迎各界在遵循协议的前提下进行修改、扩展和商业应用。
+- v0（初始）
+  - GBF、DMPF（数值型）、加密索引与简单查询；结果采用“非零即命中”的演示逻辑。
+- v1（离线完整性）
+  - `verification.py` 增加 HMAC 列标签与校验；新增 `offline_demo.py`。
+- v2（抑制泄露）
+  - 查询块填充（padding）、结果盲化（blinding）；README/结构梳理。
+- v3（论文对齐：密态 XOR 路径）
+  - DMPF 改为“按位选择比特分享”；`SearchProcess` 改为按字节 XOR 聚合；Demo 解密与指纹比对，输出可读列表，仅包含相关项。
+- v4（严格验证）
+  - 实现 FX(Ki,·)+HMAC 等式验证；用 `Kv→Ki`、FX XOR 同态与 HMAC 聚合项完成轻量证明校验（与对象规模无关）。
 
 ---
 
-## 联系方式
+## 未来工作
 
-如有任何问题或建议，欢迎联系开发者：
-
-* **邮箱** : pjc040127@gmail.com
-* **GitHub** :https://github.com/MomoeQWQ/Key_Query
+- 引入空间范围（R）与关键词联合查询（当前 Demo 仅关键词）。
+- 更高效的实现：向量化、缓存、并行化与 C 扩展。
+- 适配更多数据集与动态更新。
 
 ---
 
-本 README 文档旨在帮助用户快速了解并使用该安全空间文本搜索系统，同时为后续开发和扩展提供指导。Happy coding!
+## 许可证与联系
+
+- 许可证：MIT
+- 联系方式：
+  - 邮箱：pjc040127@gmail.com
+  - GitHub：https://github.com/MomoeQWQ/Key_Query
+
