@@ -66,10 +66,33 @@ def load_config(path: str) -> dict:
             "enable_blinding": sec.getboolean("enable_blinding", suppression["enable_blinding"]),
         })
 
+    cuckoo = {
+        "kappa_kw": 3,
+        "load_kw": 1.27,
+        "seed_kw": "cuckoo-seed",
+        "kappa_spa": 3,
+        "load_spa": 1.27,
+        "seed_spa": "cuckoo-seed-spa",
+    }
+    if parser.has_section("cuckoo"):
+        sec = parser["cuckoo"]
+        cuckoo.update({
+            "kappa_kw": sec.getint("kappa_kw", cuckoo["kappa_kw"]),
+            "load_kw": sec.getfloat("load_kw", cuckoo["load_kw"]),
+            "seed_kw": sec.get("seed_kw", cuckoo["seed_kw"]),
+            "kappa_spa": sec.getint("kappa_spa", cuckoo["kappa_spa"]),
+            "load_spa": sec.getfloat("load_spa", cuckoo["load_spa"]),
+            "seed_spa": sec.get("seed_spa", cuckoo["seed_spa"]),
+        })
+
     return {
         **general,
         "spatial_bloom_filter": spatial,
         "keyword_bloom_filter": keyword,
         "suppression": suppression,
+        "spatial_grid": {
+            "cell_size_lat": float(parser.get("spatial_grid", "cell_size_lat", fallback="0.5")) if parser.has_section("spatial_grid") else 0.5,
+            "cell_size_lon": float(parser.get("spatial_grid", "cell_size_lon", fallback="0.5")) if parser.has_section("spatial_grid") else 0.5,
+        },
+        "cuckoo": cuckoo,
     }
-

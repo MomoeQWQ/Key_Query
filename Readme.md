@@ -13,7 +13,8 @@
   - 客户端用 Kv→Ki 派生密钥，对解密后的对象向量进行 FX 聚合，并与 HMAC 聚合项组成等式校验。
   - 证明大小与对象数量无关。
 - 端到端 Demo
-  - `offline_demo.py` 完成配置→索引构建→密态查询→解密匹配→严格验证→可读结果列表。
+  - `offline_demo.py`：关键词路径演示（仅 W*）。
+  - `offline_demo_spatial.py`：联合查询演示（R ∩ W*），包含范围离散为网格 cell、PRP+Cuckoo+DMPF 小域聚合、解密与严格验证。
 - 关键词标准化
   - 统一大小写与字符集（仅字母数字），保证数据侧与查询侧一致性。
 
@@ -30,7 +31,7 @@
 - `verification.py`：
   - `build_integrity_tags/verify_integrity`：离线完整性标签（HMAC 列标签）。
   - `verify_fx_hmac`：严格验证（FX(Ki,·)+HMAC 等式）。
-- `offline_demo.py`：端到端演示入口。
+- 演示入口：`offline_demo.py`（仅关键词）、`offline_demo_spatial.py`（空间∩关键词）。
 - `conFig.ini`：参数配置。
 
 ---
@@ -47,6 +48,7 @@ pip install pandas
 
 ```bash
 echo ORLANDO | python -u offline_demo.py
+echo "ORLANDO; R: 28.3,-81.5,28.7,-81.2" | python -u offline_demo_spatial.py
 ```
 
 或传参/交互：
@@ -64,6 +66,10 @@ python -u offline_demo.py "ORLANDO"
 - `keyword_bloom_filter.size/hash_count/psi`：关键词 GBF 长度、哈希个数、单元比特数。
 - `spatial_bloom_filter.*`：空间 GBF 参数（当前 Demo 未启用，可扩展）。
 - `suppression.enable_padding/max_r_blocks/enable_blinding`：查询块填充与盲化开关（默认开启）。
+- `spatial_grid.cell_size_lat/cell_size_lon`：将范围 R 离散为网格 cell token 的网格大小（单位度）。
+- `cuckoo.*`：PRP-based Cuckoo 参数
+  - `kappa_kw/load_kw/seed_kw`：关键词路径的候选桶数/负载系数/种子
+  - `kappa_spa/load_spa/seed_spa`：空间路径的候选桶数/负载系数/种子
 
 ---
 
@@ -78,12 +84,13 @@ python -u offline_demo.py "ORLANDO"
    - 列标签：`sigma[j] = XOR_i FX(Ki, I[:,j]) XOR HMAC(Kh,(j+m1)||cat_ids)`。
 3. 查询（Search）
    - 标准化查询词；每词算 GBF 位置集合 S。
-   - DMPF 生成按位选择比特分享；云端对选列执行按字节 XOR，返回“对象级向量份额”与“证明份额”。
+- DMPF 生成按位选择比特分享；云端对选列执行按字节 XOR，返回“对象级向量份额”与“证明份额”。
+- 引入 PRP-based Cuckoo hashing：将选列集合分桶，在每个桶内用小域 DMPF，减少域规模并提升效率（关键词与空间路径均适用）。
 4. 合并与解密（客户端）
    - XOR 合并各方份额，得到每词的对象级聚合向量与证明；
    - 用 `Ke` 在相同选列上累积 pad 并解密；与 `fingerprint(token)` 对比（AND 语义）得到命中对象；
 5. 严格验证（FX+HMAC）
-   - 校验 `combined_proof == XOR_i FX(Ki,res[i]) XOR XOR_i FX(Ki,pad_acc(i)) XOR N_S,ID`。
+- 校验 `combined_proof == XOR_i FX(Ki,res[i]) XOR XOR_i FX(Ki,pad_acc(i)) XOR N_S,ID`（对每个 token；关键词与空间 cell 统一处理）。
 
 ---
 
@@ -123,4 +130,3 @@ python -u offline_demo.py "ORLANDO"
 - 联系方式：
   - 邮箱：pjc040127@gmail.com
   - GitHub：https://github.com/MomoeQWQ/Key_Query
-

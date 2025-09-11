@@ -1,4 +1,5 @@
 import hashlib
+from math import ceil
 from QueryUtils import pad_query_blocks, tokenize_normalized
 import DMPF
 
@@ -9,7 +10,31 @@ def _hash_positions(item: str, size: int, hash_count: int) -> list:
     return [(h1 + i * h2) % size for i in range(hash_count)]
 
 
-def search_process(query, authenticated_index, suppression=None):
+def _prp(zeta: bytes, x: int) -> int:
+    """Pseudo-random permutation output (integer) using SHA-256 keyed with seed zeta."""
+    return int(hashlib.sha256(zeta + x.to_bytes(8, 'big')).hexdigest(), 16)
+
+
+def _cuckoo_bucketize(indices: list, m: int, kappa: int, M: int, zeta: bytes) -> dict:
+    """
+    PRP-based Cuckoo bucketing: for each index j in indices, compute kappa candidate buckets
+    and place j into the currently lightest bucket among its candidates. Returns {bucket_id: [col_idx,...]}.
+    """
+    buckets = {b: [] for b in range(M)}
+    for j in indices:
+        cands = []
+        for i in range(kappa):
+            val = _prp(zeta, j + m * i)
+            b = val % M
+            cands.append(b)
+        # choose lightest bucket among candidates
+        best = min(cands, key=lambda b: len(buckets[b]))
+        buckets[best].append(j)
+    # remove empty buckets
+    return {b: lst for b, lst in buckets.items() if lst}
+
+
+def search_process(query, authenticated_index, suppression=None, spa_cells: list | None = None):
     """
     仅基于关键词 GBF 的按字节 XOR 聚合：
       - 每个查询词生成列选择集合（GBF 哈希位置）
@@ -38,25 +63,60 @@ def search_process(query, authenticated_index, suppression=None):
     result_shares = {l: [] for l in range(U)}
     proof_shares = {l: [] for l in range(U)}
 
+    # 关键词 token 路径
     for tok in tokens:
         indices = _hash_positions(tok, m2, k_tex)
-        keys = DMPF.Gen(security_param, indices, m2, num_parties=U)
+        # PRP-based Cuckoo hashing parameters
+        ck = authenticated_index.get('cuckoo_kw', {"kappa": 3, "load": 1.27, "seed": "cuckoo-seed"})
+        kappa = min(int(ck.get('kappa', 3)), k_tex)
+        M = max(1, int(ceil(float(ck.get('load', 1.27)) * max(1, len(indices)))))
+        zeta = str(ck.get('seed', 'cuckoo-seed')).encode('utf-8')
+        buckets = _cuckoo_bucketize(indices, m2, kappa, M, zeta)
+        # For each party, aggregate per-bucket results then XOR across buckets
         for l in range(U):
-            # 计算选择掩码（比特份额）
-            sel = [DMPF.Eval(keys[l], j) for j in range(m2)]
-            # 对象级按字节 XOR 聚合
-            vec = [b"\x00" * byte_len for _ in range(n)]
-            for j in range(m2):
-                if sel[j] == 1:
-                    col_cells = [row[j] for row in I_tex["EbW"]]
-                    for i in range(n):
-                        vec[i] = bytes(a ^ b for a, b in zip(vec[i], col_cells[i]))
-            # 证明份额（按字节 XOR）
-            proof = b"\x00" * security_param
-            for j in range(m2):
-                if sel[j] == 1:
-                    proof = bytes(a ^ b for a, b in zip(proof, I_tex["sigma"][j]))
-            result_shares[l].append(vec)
-            proof_shares[l].append(proof)
+            vec_total = [b"\x00" * byte_len for _ in range(n)]
+            proof_total = b"\x00" * security_param
+            for b_id, cols in buckets.items():
+                domain_size = len(cols)
+                # All positions in this bucket are selected
+                keys = DMPF.Gen(security_param, list(range(domain_size)), domain_size, num_parties=U)
+                # selection bits for this bucket
+                sel_bits = [DMPF.Eval(keys[l], j_local) for j_local in range(domain_size)]
+                # aggregate columns in this bucket according to sel_bits (will be all ones after combine across parties)
+                for local_idx, col_idx in enumerate(cols):
+                    if sel_bits[local_idx] == 1:
+                        col_cells = [row[col_idx] for row in I_tex["EbW"]]
+                        for i in range(n):
+                            vec_total[i] = bytes(a ^ b for a, b in zip(vec_total[i], col_cells[i]))
+                        proof_total = bytes(a ^ b for a, b in zip(proof_total, I_tex["sigma"][col_idx]))
+            result_shares[l].append(vec_total)
+            proof_shares[l].append(proof_total)
+
+    # 空间 token 路径（可选）
+    if spa_cells:
+        k_spa = authenticated_index.get('k_spa', 3)
+        m1 = authenticated_index['m1']
+        for cell in spa_cells:
+            indices = _hash_positions(cell, m1, k_spa)
+            ck = authenticated_index.get('cuckoo_spa', {"kappa": 3, "load": 1.27, "seed": "cuckoo-seed-spa"})
+            kappa = min(int(ck.get('kappa', 3)), k_spa)
+            M = max(1, int(ceil(float(ck.get('load', 1.27)) * max(1, len(indices)))))
+            zeta = str(ck.get('seed', 'cuckoo-seed-spa')).encode('utf-8')
+            buckets = _cuckoo_bucketize(indices, m1, kappa, M, zeta)
+            for l in range(U):
+                vec_total = [b"\x00" * byte_len for _ in range(n)]
+                proof_total = b"\x00" * security_param
+                for b_id, cols in buckets.items():
+                    domain_size = len(cols)
+                    keys = DMPF.Gen(security_param, list(range(domain_size)), domain_size, num_parties=U)
+                    sel_bits = [DMPF.Eval(keys[l], j_local) for j_local in range(domain_size)]
+                    for local_idx, col_idx in enumerate(cols):
+                        if sel_bits[local_idx] == 1:
+                            col_cells = [row[col_idx] for row in authenticated_index['I_spa']["Ebp"]]
+                            for i in range(n):
+                                vec_total[i] = bytes(a ^ b for a, b in zip(vec_total[i], col_cells[i]))
+                            proof_total = bytes(a ^ b for a, b in zip(proof_total, authenticated_index['I_spa']["sigma"][col_idx]))
+                result_shares[l].append(vec_total)
+                proof_shares[l].append(proof_total)
 
     return result_shares, proof_shares

@@ -83,8 +83,7 @@ def main():
 
     tokens = norm_tokens or [query]
 
-    # 预先重建每个 token 的选择列索引
-    import hashlib as _hh
+    # 预先重建每个 token 的选择列索�?    import hashlib as _hh
     def _hash_pos(item: str, size: int, k: int):
         h1 = int(_hh.sha256(item.encode('utf-8')).hexdigest(), 16)
         h2 = int(_hh.md5(item.encode('utf-8')).hexdigest(), 16)
@@ -92,7 +91,7 @@ def main():
     k_tex = AUI.get('k_tex', 4)
     token_indices = [ _hash_pos(tok, m2, k_tex) for tok in tokens ]
 
-    # 计算每个对象、每个 token 的解密后向量，并与指纹对比，同时收集解密后的向量供严格 Verify 使用
+    # 计算每个对象、每�?token 的解密后向量，并与指纹对比，同时收集解密后的向量供严�?Verify 使用
     decrypted_vectors = []  # list[token] -> list[bytes per object]
     def one_time_pad_for_obj(idx1, obj_id):
         total_len = (m1 + m2) * byte_len
@@ -109,8 +108,7 @@ def main():
         for row_idx, obj_id in enumerate(ids, start=1):
             enc_vec = final_vectors[t_i][row_idx-1]
             pad = one_time_pad_for_obj(row_idx, obj_id)
-            # 累计关键词 pad：位于 pad 的 (m1 + j) 段
-            pad_acc = b"\x00" * byte_len
+            # 累计关键�?pad：位�?pad �?(m1 + j) �?            pad_acc = b"\x00" * byte_len
             for j in indices:
                 start = (m1 + j) * byte_len
                 pad_acc = bytes(a ^ b for a, b in zip(pad_acc, pad[start:start+byte_len]))
@@ -119,7 +117,7 @@ def main():
             per_token_vec.append(plain)
         decrypted_vectors.append(per_token_vec)
 
-    # AND 所有 token
+    # AND 所�?token
     match_flags = [ all(token_match[t_i][r] for t_i in range(len(tokens))) for r in range(n) ]
     matched_ids = [ids[i] for i, flag in enumerate(match_flags) if flag]
     print(f"[OK] Matches: {len(matched_ids)}")
@@ -137,13 +135,11 @@ def main():
     ok2 = verify_fx_hmac(query, AUI, K, decrypted_vectors, combined_proofs)
     print(f"[OK] Proof verification (FX+HMAC): {'pass' if ok2 else 'fail'}")
 
-    # 8) 自检：直接对若干对象用本地 GBF 查询（不走密态），应和规范化 token 一致
-    try:
+    # 8) 自检：直接对若干对象用本�?GBF 查询（不走密态），应和规范化 token 一�?    try:
         from convert_dataset import SpatioTextualRecord  # type: ignore
         if norm_tokens:
             tok0 = norm_tokens[0]
-            # 抽样前 20 个对象在本地 GBF 上判断
-            sample_ok = 0
+            # 抽样�?20 个对象在本地 GBF 上判�?            sample_ok = 0
             total = min(20, len(DB))
             first_idx = None
             for obj in DB[:total]:
@@ -155,8 +151,7 @@ def main():
             # 进一步比对第一条本地命中对象在密态路径的解密是否等于指纹
             if first_idx is not None:
                 i = first_idx
-                # 查找 final_vectors 对应 token 的加密聚合向量
-                if final_vectors:
+                # 查找 final_vectors 对应 token 的加密聚合向�?                if final_vectors:
                     enc_vec = final_vectors[0][i]
                     from GBF import fingerprint
                     fp = fingerprint(tok0, psi)

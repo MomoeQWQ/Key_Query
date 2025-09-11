@@ -131,6 +131,16 @@ def Setup(DB: list, config: dict):
         "ids": [obj.id for obj in DB],
         "k_spa": config.get("spatial_bloom_filter", {}).get("hash_count", 3),
         "k_tex": config.get("keyword_bloom_filter", {}).get("hash_count", 4),
+        "cuckoo_kw": {
+            "kappa": config.get('cuckoo', {}).get('kappa_kw', 3),
+            "load": config.get('cuckoo', {}).get('load_kw', 1.27),
+            "seed": config.get('cuckoo', {}).get('seed_kw', 'cuckoo-seed'),
+        },
+        "cuckoo_spa": {
+            "kappa": config.get('cuckoo', {}).get('kappa_spa', 3),
+            "load": config.get('cuckoo', {}).get('load_spa', 1.27),
+            "seed": config.get('cuckoo', {}).get('seed_spa', 'cuckoo-seed-spa'),
+        },
     }
 
     K_final = (Ke, Kv, Kh)

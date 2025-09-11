@@ -67,7 +67,8 @@ def verify_integrity(authenticated_index: dict, K_final: tuple, tags: dict) -> b
 
 
 def verify_fx_hmac(query: str, authenticated_index: dict, K_final: tuple,
-                   combined_vectors: list, combined_proofs: list) -> bool:
+                   combined_vectors: list, combined_proofs: list,
+                   tokens_override: list | None = None) -> bool:
     """
     Strict verification per paper: For each token block t,
       combined_proof[t] == (XOR_i FX(Ki, res_t[i])) XOR N_S,ID
@@ -94,7 +95,7 @@ def verify_fx_hmac(query: str, authenticated_index: dict, K_final: tuple,
         h2 = int(hashlib.md5(item.encode('utf-8')).hexdigest(), 16)
         return [(h1 + i * h2) % size for i in range(k)]
 
-    tokens = tokenize_normalized(query) or [query]
+    tokens = tokens_override if tokens_override is not None else (tokenize_normalized(query) or [query])
 
     if len(tokens) != len(combined_vectors) or len(tokens) != len(combined_proofs):
         return False

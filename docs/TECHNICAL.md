@@ -21,24 +21,28 @@ Let DB contain n objects with ids {id_i}.
 
 The authenticated index packs encrypted matrices and sigma.
 
-## Query (Keyword-only path in demo)
+## Query (Keyword + Spatial paths)
 
-- Normalize tokens; for each token t, compute GBF positions S(t).
-- DMPF (bit-selection shares): Gen(security_param, S, domain_size=m2, U) yields per-party bitmaps; Eval returns per-column bit shares; XOR across parties reveals selection bits.
-- Each party l returns:
-  - result_share[t]: object-level vectors via byte-wise XOR of selected columns.
-  - proof_share[t]: XOR of sigma[j] over selected columns.
-- Client XORs shares to get combined vectors & proofs per token.
+- Normalize keyword tokens; for each token t compute GBF positions S(t).
+- Spatial range R is discretized into grid cells (CELL:R{row}_C{col}); each cell is treated as a token with its own GBF S(cell).
+- PRP-based Cuckoo hashing shrinks the DMPF domain per token:
+  - Bucket S(t) using M ≈ load*|S| buckets and κ candidate buckets via PRP(ζ, ·) mapping.
+  - For each bucket, run DMPF over the local domain (bucket size) and aggregate byte-wise XOR for result/proof.
+  - XOR across buckets to obtain the token-level result/proof.
+- Each party l returns, for every token (keywords + spatial):
+  - result_share[token]: object-level vectors via byte-wise XOR of selected columns.
+  - proof_share[token]: XOR of sigma[j] over selected columns.
+- Client XORs shares to get combined vectors & proofs per token; AND across keywords; OR across spatial cells; final match is AND(keywords) ∩ OR(spatial).
 
 ## Decryption & Matching
 
-- For token t and object i, compute pad_acc(i,t) by XORing pad_i slices at selected keyword columns.
+- For token t and object i, compute pad_acc(i,t) by XORing pad_i slices at selected columns (keyword or spatial path).
 - Plain vector: plain(i,t) = combined_vec(i,t) XOR pad_acc(i,t).
-- Match if plain(i,t) equals GBF fingerprint of t; for multi-token query, apply AND across tokens.
+- Match if plain(i,t) equals GBF fingerprint of t; for multi-token query, apply AND across keywords, OR across spatial cells.
 
 ## Verification (Strict)
 
-For each token t with selection S(t), verify:
+For each token t (keyword or spatial) with selection S(t), verify:
 
 combined_proof(t) == XOR_i FX(Ki, plain(i,t)) XOR XOR_i FX(Ki, pad_acc(i,t)) XOR N_S,ID
 
@@ -74,4 +78,3 @@ This proof is independent of dataset size (depends only on number of tokens and 
 
 - The demo favors clarity over speed; production use should vectorize XOR and cache Ki/pad segments.
 - Normalization must be identical for data and queries to avoid mismatches.
-

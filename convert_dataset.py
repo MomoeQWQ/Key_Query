@@ -1,8 +1,9 @@
+import math
 from GBF import GarbledBloomFilter
 from QueryUtils import tokenize_normalized
 
 class SpatioTextualRecord:
-    def __init__(self, id, x, y, keywords, spatial_config: dict, keyword_config: dict):
+    def __init__(self, id, x, y, keywords, spatial_config: dict, keyword_config: dict, spatial_grid: dict | None = None):
         self.id = id
         self.x = x
         self.y = y
@@ -14,8 +15,16 @@ class SpatioTextualRecord:
             hash_count=spatial_config.get("hash_count", 3),
             psi=spatial_config.get("psi", 32)
         )
+        # 原始坐标 token（占位）
         spatial_item = f"{x},{y}"
         self.spatial_gbf.add(spatial_item)
+        # 网格 cell token：CELL:R{row}_C{col}
+        if spatial_grid:
+            lat_step = float(spatial_grid.get("cell_size_lat", 0.5))
+            lon_step = float(spatial_grid.get("cell_size_lon", 0.5))
+            row = math.floor(float(x) / lat_step)
+            col = math.floor(float(y) / lon_step)
+            self.spatial_gbf.add(f"CELL:R{row}_C{col}")
 
         # 构造关键词 GBF 对象，并添加关键词字符串
         self.keyword_gbf = GarbledBloomFilter(
@@ -46,6 +55,7 @@ def convert_dataset(dict_list: list, config: dict) -> list:
     spatial_config = config.get("spatial_bloom_filter", {})
     keyword_config = config.get("keyword_bloom_filter", {})
     objects = []
+    grid = config.get("spatial_grid", {})
     for record in dict_list:
         obj = SpatioTextualRecord(
             id=record["id"],
@@ -53,7 +63,8 @@ def convert_dataset(dict_list: list, config: dict) -> list:
             y=record["y"],
             keywords=record["keywords"],
             spatial_config=spatial_config,
-            keyword_config=keyword_config
+            keyword_config=keyword_config,
+            spatial_grid=grid
         )
         objects.append(obj)
     return objects
