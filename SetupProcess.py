@@ -64,9 +64,13 @@ def Setup(DB: list, config: dict):
     # Encrypt GBFs per record -> Ispa, Itex
     Ispa = []
     Itex = []
+    raw_spa = []
+    raw_tex = []
     for idx, obj in enumerate(DB, start=1):
         bp_i = obj.spatial_gbf.array
         bW_i = obj.keyword_gbf.array
+        raw_spa.append(bp_i)
+        raw_tex.append(bW_i)
         total_len = (m1 + m2) * chunk_len
         padi = F(Ke, (str(idx) + str(obj.id)).encode('utf-8'), total_len)
         Ebp_i = []
@@ -101,7 +105,7 @@ def Setup(DB: list, config: dict):
     for j in range(m1):
         xor_val = b"\x00" * lam
         for i in range(n):
-            fx_val = FX(K_list[i], Ispa[i][j], output_len=lam)
+            fx_val = FX(K_list[i], raw_spa[i][j], output_len=lam)
             xor_val = bytes_xor(xor_val, fx_val)
         hmac_val = hmac.new(Kh, str(j + 1).encode('utf-8') + cat_ids, hashlib.sha256).digest()[:lam]
         sigma_spa.append(bytes_xor(xor_val, hmac_val))
@@ -110,7 +114,7 @@ def Setup(DB: list, config: dict):
     for j in range(m2):
         xor_val = b"\x00" * lam
         for i in range(n):
-            fx_val = FX(K_list[i], Itex[i][j], output_len=lam)
+            fx_val = FX(K_list[i], raw_tex[i][j], output_len=lam)
             xor_val = bytes_xor(xor_val, fx_val)
         hmac_val = hmac.new(Kh, str(j + 1 + m1).encode('utf-8') + cat_ids, hashlib.sha256).digest()[:lam]
         sigma_tex.append(bytes_xor(xor_val, hmac_val))

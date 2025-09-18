@@ -6,24 +6,17 @@
 
 ## 主要特性
 
-- 抑制泄露的密态查询
-  - 关键词采用 GBF 编码；云端按字节 XOR 聚合仅返回对象级向量分享与轻量证明份额。
-  - DMPF 以“按位选择比特分享”隐藏访问/搜索模式，参与方结果按位 XOR 合并。
-- 轻量结果验证（FX+HMAC 等式）
-  - 客户端用 Kv→Ki 派生密钥，对解密后的对象向量进行 FX 聚合，并与 HMAC 聚合项组成等式校验。
-  - 证明大小与对象数量无关。
-- 端到端 Demo
-  - `offline_demo.py`：关键词路径演示（仅 W*）。
-  - `offline_demo_spatial.py`：联合查询演示（R ∩ W*），包含范围离散为网格 cell、PRP+Cuckoo+DMPF 小域聚合、解密与严格验证。
-- 关键词标准化
-  - 统一大小写与字符集（仅字母数字），保证数据侧与查询侧一致性。
+- 加密索引：GBF 将空间与关键词统一编码，Ke 派生的对象级 OTP 保证列式数据加密后仍可被云端按 XOR 合并。
+- 查询隐私：PRP-based Cuckoo + DMPF 构造小域选择份额，多个 CSP 仅处理随机化的列份额，不暴露客户端真实访问模式。
+- 结果验证：FX+HMAC 等式让客户端在聚合份额后验证云端行为，证明大小与对象数量无关，兼容空间与关键词双通道。
+- 全链路演示：同时提供 offline_demo.py、offline_demo_spatial.py 与 online_demo 客户端+CSP 全流程脚本，便于复现论文方案。
 
 ---
 
 ## 仓库结构
 
 - `GBF.py`：GBF 指纹/添加/查询。
-- `DMPF.py`：按位选择比特分享的 DMPF（`Gen(security_param, indices, domain_size, U)` / `Eval(key,j)`）。
+- `DMPF.py`：按位选择比特分享的 MPF（`Gen(security_param, indices, domain_size, U)` / `Eval(key,j)`）。
 - `SetupProcess.py`：构建认证索引（I_spa/I_tex）、一次性加密（Ke）、列聚合标签（sigma）、Kv→Ki 派生、XOR 同态 PRF FX。
 - `SearchProcess.py`：仅关键词部分的按字节 XOR 聚合与证明份额生成（可扩展空间部分）。
 - `convert_dataset.py`：记录对象化，标准化分词后逐词写入关键词 GBF；空间 GBF 保持接口。
@@ -59,6 +52,16 @@ python -u offline_demo.py "ORLANDO"
 
 ---
 
+## 在线 Demo（Client + CSP）
+
+1. `python online_demo/owner_setup.py`：重建 `aui.pkl`/`K.pkl`，确保 FX+HMAC 验证使用的 `sigma` 与最新代码同步。
+2. `python online_demo/run_all.py "ORLANDO; R: 28.3,-81.5,28.7,-81.2"`：自动启动 3 台 CSP 服务端，客户端生成 PRP+Cuckoo+DMPF 选列份额并执行 FX+HMAC 验证。
+   - 可用 `echo ORLANDO | python online_demo/run_all.py` 快捷验证仅关键词的查询。
+3. 运行结果会显示 `[client] Verify: pass`/`fail` 及前 20 条匹配数据，用于验证整个流程。
+4. 如果修改 Setup/verification 中的 FX/HMAC 计算或 sigma 生产逻辑，需重新执行 `owner_setup.py` 以生成新的 AUI/K。
+
+---
+
 ## 配置说明（conFig.ini）
 
 - `general.lambda`：安全参数（字节数，默认 16）。
@@ -73,31 +76,30 @@ python -u offline_demo.py "ORLANDO"
 
 ---
 
-## 工作流（关键词查询）
+## 工作流（空间 + 关键词查询）
 
 1. 预处理
-   - 读取 CSV（如 `us-colleges-and-universities.csv`），抽取 `IPEDSID/Geo Point/NAME/ADDRESS/CITY/STATE`。
-   - 标准化分词（大写+仅字母数字），逐词写入关键词 GBF；空间 GBF 保留接口。
-2. 索引构建（Setup）
-   - 一次性加密：`Ke` 生成每对象 pad，按列异或得到 `I_tex`（加密 GBF 矩阵）。
-   - 前缀受限 PRF：`Kv = FC.Cons(K_main, v)`，`Ki = FC.Eval(Kv, i)`。
-   - 列标签：`sigma[j] = XOR_i FX(Ki, I[:,j]) XOR HMAC(Kh,(j+m1)||cat_ids)`。
-3. 查询（Search）
-   - 标准化查询词；每词算 GBF 位置集合 S。
-- DMPF 生成按位选择比特分享；云端对选列执行按字节 XOR，返回“对象级向量份额”与“证明份额”。
-- 引入 PRP-based Cuckoo hashing：将选列集合分桶，在每个桶内用小域 DMPF，减少域规模并提升效率（关键词与空间路径均适用）。
-4. 合并与解密（客户端）
-   - XOR 合并各方份额，得到每词的对象级聚合向量与证明；
-   - 用 `Ke` 在相同选列上累积 pad 并解密；与 `fingerprint(token)` 对比（AND 语义）得到命中对象；
-5. 严格验证（FX+HMAC）
-- 校验 `combined_proof == XOR_i FX(Ki,res[i]) XOR XOR_i FX(Ki,pad_acc(i)) XOR N_S,ID`（对每个 token；关键词与空间 cell 统一处理）。
+   - 读取 CSV 数据，标准化分词，构造 “原始对象 + space/keyword GBF” 的 DB 项。
+2. 索引构建 (Setup)
+   - 使用 `Ke` 生成对应对象的 OTP，将 GBF 分段按列加密，得到 `I_spa`/`I_tex`。
+   - 通过 `Kv` 派生 `Ki = FC_eval(Kv, i)`，并配合 FX 生成列标签 `sigma`，同时保留原始 GBF 段用于 FX 计算。
+3. 查询准备 (Client)
+   - 解析用户查询，获取规范化关键词 token 及空间区域 grid（`CELL:*`）。
+   - 使用 PRP-based Cuckoo 选取小域列集合，并对关键词/空间路径分别执行 DMPF 分份。
+4. CSP 评估
+   - 每个 CSP 根据 `party_id` 份额访问 `I_spa`/`I_tex`，按 XOR 聚合对象向量和 `sigma` 份额，返回 Base64 编码结果。
+5. 客户端合并与解密
+   - XOR 合并各 CSP 份额，对每个 token 累加 pad 后解密对应 GBF 段，借助 `fingerprint` 判定命中。
+   - 关键词 token 内部取 AND，空间 token 取 OR，组合得到最终结果。
+6. FX+HMAC 验证
+   - 逐 token 验证 `combined_proof` 是否等于 FX(Ki, 明文向量)、FX(Ki, pad 修正) 与 HMAC 项的 XOR 结果，确认云端未作弊。
 
 ---
 
 ## 性能提示
 
 - 完整校验包含大量 HMAC/PRF 与按字节 XOR，Python 端 Demo 会牺牲速度以保证正确性与可读性。
-- 提速思路（可选）：仅遍历选列、将 `I_tex/sigma` 向量化成 `numpy.uint8`、缓存 Ki/PRF 块、预存关键词 pad 段等。
+- 可选的提速思路：仅遍历选列、将 `I_tex/sigma` 向量化成 `numpy.uint8`、缓存 Ki/PRF 块、预存关键词 pad 段等。
 
 ---
 
@@ -118,11 +120,9 @@ python -u offline_demo.py "ORLANDO"
 
 ## 未来工作
 
-- 引入空间范围（R）与关键词联合查询（当前 Demo 仅关键词）。
-- 更高效的实现：向量化、缓存、并行化与 C 扩展。
-- 适配更多数据集与动态更新。
-
----
+- 增量更新与撤销：提供动态数据后的 pad/sigma 重计算方案。
+- 网络部署：添加 TLS/认证层和防重放机制，提升 CSP 之间的通讯安全性。
+- 性能工程：向量化 PRF/HMAC、采用并行或 C/C++ 扩展以支撑大数据量。
 
 ## 许可证与联系
 

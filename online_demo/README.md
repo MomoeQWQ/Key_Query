@@ -10,7 +10,7 @@ This minimal demo simulates a client and multiple CSP servers using the existing
 python online_demo/owner_setup.py
 ```
 
-This writes `online_demo/aui.pkl` and `online_demo/K.pkl`.
+This writes `online_demo/aui.pkl` and `online_demo/K.pkl`. Re-run this step after any changes to `SetupProcess.py` or `verification.py` that touch FX/HMAC logic.
 
 2) Start CSP servers and run client
 
@@ -19,6 +19,8 @@ This writes `online_demo/aui.pkl` and `online_demo/K.pkl`.
 ```
 python online_demo/run_all.py "ORLANDO; R: 28.3,-81.5,28.7,-81.2"
 ```
+
+Expect to see `[client] Verify: pass` on success; the client prints matching rows (up to 20).
 
 or keywords only:
 
@@ -41,4 +43,5 @@ Uses `conFig.ini` for params:
 ## Notes
 
 - This is a minimal prototype and uses Python http.server. For production, use TLS and a framework (FastAPI), add nonce and authentication, and vectorize XOR operations.
+- The verification step relies on sigma computed from raw GBF columns; regenerate the pickles if keys or pad generation change.
 

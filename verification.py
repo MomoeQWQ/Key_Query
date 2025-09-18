@@ -85,6 +85,7 @@ def verify_fx_hmac(query: str, authenticated_index: dict, K_final: tuple,
     lam = authenticated_index['security_param']
     byte_len = authenticated_index['segment_length']
     k_tex = authenticated_index.get('k_tex', 4)
+    k_spa = authenticated_index.get('k_spa', 3)
 
     cat_ids = "".join(str(x) for x in ids).encode('utf-8')
 
@@ -102,7 +103,11 @@ def verify_fx_hmac(query: str, authenticated_index: dict, K_final: tuple,
 
     n = len(ids)
     for t_idx, tok in enumerate(tokens):
-        indices = _hash_pos(tok, m2, k_tex)
+        is_spatial = isinstance(tok, str) and tok.startswith("CELL:")
+        if is_spatial:
+            indices = _hash_pos(tok, m1, k_spa)
+        else:
+            indices = _hash_pos(tok, m2, k_tex)
         # sum FX over objects
         fx_sum = b"\x00" * lam
         fx_pad_sum = b"\x00" * lam
@@ -115,14 +120,17 @@ def verify_fx_hmac(query: str, authenticated_index: dict, K_final: tuple,
             pad = F(K_final[0], (str(i) + str(ids[i - 1])).encode('utf-8'), total_len)
             pad_acc = b"\x00" * byte_len
             for j in indices:
-                start = (m1 + j) * byte_len
+                start = (j * byte_len) if is_spatial else ((m1 + j) * byte_len)
                 pad_acc = bytes(a ^ b for a, b in zip(pad_acc, pad[start:start + byte_len]))
             fx_pad = FX(Ki, pad_acc, output_len=lam)
             fx_pad_sum = bytes(a ^ b for a, b in zip(fx_pad_sum, fx_pad))
         # N_S,ID
         nsid = b"\x00" * lam
         for j in indices:
-            h = hmac.new(Kh, str(j + 1 + m1).encode('utf-8') + cat_ids, hashlib.sha256).digest()[:lam]
+            if is_spatial:
+                h = hmac.new(Kh, str(j + 1).encode('utf-8') + cat_ids, hashlib.sha256).digest()[:lam]
+            else:
+                h = hmac.new(Kh, str(j + 1 + m1).encode('utf-8') + cat_ids, hashlib.sha256).digest()[:lam]
             nsid = bytes(a ^ b for a, b in zip(nsid, h))
         expected = bytes(a ^ b for a, b in zip(fx_sum, nsid))
         expected = bytes(a ^ b for a, b in zip(expected, fx_pad_sum))
