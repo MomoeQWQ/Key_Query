@@ -1,0 +1,234 @@
+{
+  "index_scaling": [
+    {
+      "records": 500,
+      "convert_time": 0.09311140002682805,
+      "setup_time": 2.255475699979191,
+      "total_time": 2.3485871000060192
+    },
+    {
+      "records": 1000,
+      "convert_time": 0.17283899996740124,
+      "setup_time": 4.522448633370611,
+      "total_time": 4.695287633338012
+    },
+    {
+      "records": 2000,
+      "convert_time": 0.3473806999778996,
+      "setup_time": 9.111965866720615,
+      "total_time": 9.459346566698514
+    },
+    {
+      "records": 4000,
+      "convert_time": 0.7255886000348255,
+      "setup_time": 18.05071576665311,
+      "total_time": 18.776304366687935
+    },
+    {
+      "records": 6558,
+      "convert_time": 1.1902619666652754,
+      "setup_time": 29.473628533344407,
+      "total_time": 30.663890500009682
+    }
+  ],
+  "query_latency": {
+    "baseline": [
+      {
+        "scenario": "Single keyword",
+        "mode": "baseline",
+        "plan_time": 0.00015956671753277382,
+        "server_time": 0.03121163327402125,
+        "client_time": 2.486608666717075,
+        "total_time": 2.517979866708629,
+        "token_count": 1,
+        "dummy_tokens": 0,
+        "hits": 12
+      },
+      {
+        "scenario": "Multi keyword",
+        "mode": "baseline",
+        "plan_time": 0.00029346665057043236,
+        "server_time": 0.09384123336834212,
+        "client_time": 7.44621769998533,
+        "total_time": 7.540352400004243,
+        "token_count": 3,
+        "dummy_tokens": 0,
+        "hits": 0
+      },
+      {
+        "scenario": "Long query",
+        "mode": "baseline",
+        "plan_time": 0.0004358666871363918,
+        "server_time": 0.1561566333208854,
+        "client_time": 12.495984500002427,
+        "total_time": 12.652577000010448,
+        "token_count": 5,
+        "dummy_tokens": 0,
+        "hits": 0
+      },
+      {
+        "scenario": "Spatio-temporal",
+        "mode": "baseline",
+        "plan_time": 0.00034110003616660833,
+        "server_time": 0.11386299998654674,
+        "client_time": 10.4086235666958,
+        "total_time": 10.522827666718513,
+        "token_count": 4,
+        "dummy_tokens": 0,
+        "hits": 0
+      }
+    ],
+    "suppressed": [
+      {
+        "scenario": "Single keyword",
+        "mode": "suppressed",
+        "plan_time": 0.00014406667711834112,
+        "server_time": 0.03063523327000439,
+        "client_time": 2.487085066696939,
+        "total_time": 2.517864366644062,
+        "token_count": 1,
+        "dummy_tokens": 0,
+        "hits": 12
+      },
+      {
+        "scenario": "Multi keyword",
+        "mode": "suppressed",
+        "plan_time": 0.00031313335057348013,
+        "server_time": 0.09195729997009039,
+        "client_time": 7.460003800069292,
+        "total_time": 7.552274233389956,
+        "token_count": 3,
+        "dummy_tokens": 0,
+        "hits": 0
+      },
+      {
+        "scenario": "Long query",
+        "mode": "suppressed",
+        "plan_time": 0.00039406667929142714,
+        "server_time": 0.12477663333993405,
+        "client_time": 9.984029433301961,
+        "total_time": 10.109200133321186,
+        "token_count": 4,
+        "dummy_tokens": 0,
+        "hits": 0
+      },
+      {
+        "scenario": "Spatio-temporal",
+        "mode": "suppressed",
+        "plan_time": 0.0003380333461488287,
+        "server_time": 0.11294789996463805,
+        "client_time": 9.942186133392775,
+        "total_time": 10.055472066703564,
+        "token_count": 4,
+        "dummy_tokens": 0,
+        "hits": 0
+      }
+    ]
+  },
+  "party_scaling": [
+    {
+      "plan_time": 0.00021796665775279203,
+      "server_time": 0.08218593332761277,
+      "combine_time": 0.02379203335537265,
+      "post_time": 7.38836379997277,
+      "total_time": 7.494559733313508,
+      "client_time": 7.412155833328143,
+      "token_count": 3,
+      "tokens": [
+        [
+          "kw",
+          "ORLANDO"
+        ],
+        [
+          "kw",
+          "ENGINEERING"
+        ],
+        [
+          "kw",
+          "UNIVERSITY"
+        ]
+      ],
+      "hits": 0,
+      "query_text": "ORLANDO ENGINEERING UNIVERSITY",
+      "U": 1
+    },
+    {
+      "plan_time": 0.00027956666114429635,
+      "server_time": 0.08790070000880708,
+      "combine_time": 0.04406243333748231,
+      "post_time": 7.400445199998406,
+      "total_time": 7.53268790000584,
+      "client_time": 7.444507633335888,
+      "token_count": 3,
+      "tokens": [
+        [
+          "kw",
+          "ORLANDO"
+        ],
+        [
+          "kw",
+          "ENGINEERING"
+        ],
+        [
+          "kw",
+          "UNIVERSITY"
+        ]
+      ],
+      "hits": 0,
+      "query_text": "ORLANDO ENGINEERING UNIVERSITY",
+      "U": 2
+    },
+    {
+      "plan_time": 0.00029729997428754967,
+      "server_time": 0.09615310002118349,
+      "combine_time": 0.06886250001844019,
+      "post_time": 7.395609333296306,
+      "total_time": 7.560922233310218,
+      "client_time": 7.464471833314747,
+      "token_count": 3,
+      "tokens": [
+        [
+          "kw",
+          "ORLANDO"
+        ],
+        [
+          "kw",
+          "ENGINEERING"
+        ],
+        [
+          "kw",
+          "UNIVERSITY"
+        ]
+      ],
+      "hits": 0,
+      "query_text": "ORLANDO ENGINEERING UNIVERSITY",
+      "U": 3
+    },
+    {
+      "plan_time": 0.00032846664544194937,
+      "server_time": 0.12856619999123117,
+      "combine_time": 0.08804660003321867,
+      "post_time": 7.43122869997751,
+      "total_time": 7.6481699666474015,
+      "client_time": 7.519275300010729,
+      "token_count": 3,
+      "tokens": [
+        [
+          "kw",
+          "ORLANDO"
+        ],
+        [
+          "kw",
+          "ENGINEERING"
+        ],
+        [
+          "kw",
+          "UNIVERSITY"
+        ]
+      ],
+      "hits": 0,
+      "query_text": "ORLANDO ENGINEERING UNIVERSITY",
+      "U": 4
+    }
+  ]
+}
