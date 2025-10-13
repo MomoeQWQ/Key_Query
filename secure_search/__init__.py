@@ -8,6 +8,8 @@ from .query import (
     decrypt_matches,
     run_fx_hmac_verification,
 )
+from .expansion_client import prepare_query_plan_with_expansion, ExpandedQueryPlan
+from .query_expansion import expand_query_keywords, ExpansionResult
 
 __all__ = [
     'build_index_from_csv',
@@ -15,7 +17,11 @@ __all__ = [
     'load_index_artifacts',
     'QueryPlan',
     'prepare_query_plan',
+    'prepare_query_plan_with_expansion',
+    'ExpandedQueryPlan',
     'combine_csp_responses',
     'decrypt_matches',
     'run_fx_hmac_verification',
+    'expand_query_keywords',
+    'ExpansionResult',
 ]

@@ -18,12 +18,17 @@ if PROJ_ROOT not in sys.path:
 from config_loader import load_config
 from secure_search import (
     QueryPlan,
-    prepare_query_plan,
     combine_csp_responses,
     decrypt_matches,
+    prepare_query_plan,
+    prepare_query_plan_with_expansion,
     run_fx_hmac_verification,
 )
 from secure_search.indexing import load_index_artifacts
+try:
+    from ai_clients import make_gemini_llm
+except ImportError:  # pragma: no cover
+    make_gemini_llm = None
 
 
 def http_post(url: str, obj: dict) -> dict:
@@ -51,6 +56,7 @@ class ClientApp:
         self.endpoints_var = tk.StringVar(value='http://127.0.0.1:8001, http://127.0.0.1:8002, http://127.0.0.1:8003')
         self.query_var = tk.StringVar()
         self.status_var = tk.StringVar(value='Index not loaded')
+        self.use_ai_var = tk.BooleanVar(value=False)
 
         self._build_layout()
 
@@ -59,6 +65,9 @@ class ClientApp:
         self.config: dict | None = None
         self.query_queue: queue.Queue = queue.Queue()
         self.root.after(100, self._process_queue)
+        self._llm_callable = None
+        self._llm_initialized = False
+        self._llm_message = ''
 
     def _build_layout(self) -> None:
         frame = tk.Frame(self.root)
@@ -87,23 +96,21 @@ class ClientApp:
         tk.Label(frame, text='Query:').grid(row=5, column=0, sticky='e', pady=2)
         tk.Entry(frame, textvariable=self.query_var, width=60).grid(row=5, column=1, sticky='we', pady=2)
         tk.Label(frame, text='Input: <KW1> <KW2> ...; optional R: lat_min,lon_min,lat_max,lon_max\n- Keywords separated by space => AND\n- Spatial range -> grid cells (OR), combined with keywords (AND).', fg='#555', justify='left', anchor='w', wraplength=520).grid(row=6, column=1, columnspan=2, sticky="we", pady=2)
-
-
-
+        tk.Checkbutton(frame, text='Enable AI-assisted expansion (Gemini / fallback)', variable=self.use_ai_var).grid(row=7, column=1, columnspan=2, sticky='w', pady=(2, 6))
 
         button_bar = tk.Frame(frame)
-        button_bar.grid(row=7, column=0, columnspan=3, pady=5, sticky='w')
+        button_bar.grid(row=8, column=0, columnspan=3, pady=5, sticky='w')
         tk.Button(button_bar, text='Load index', command=self.load_index).pack(side=tk.LEFT, padx=2)
         tk.Button(button_bar, text='Run query', command=self.run_query).pack(side=tk.LEFT, padx=2)
         tk.Button(button_bar, text='Examples', command=self.fill_example).pack(side=tk.LEFT, padx=2)
 
-        tk.Label(frame, textvariable=self.status_var).grid(row=8, column=0, columnspan=3, sticky='w', pady=2)
+        tk.Label(frame, textvariable=self.status_var).grid(row=9, column=0, columnspan=3, sticky='w', pady=2)
 
         self.output_box = tk.Text(frame, height=18, width=80, state=tk.DISABLED)
-        self.output_box.grid(row=9, column=0, columnspan=3, sticky='nsew', pady=5)
+        self.output_box.grid(row=10, column=0, columnspan=3, sticky='nsew', pady=5)
 
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(9, weight=1)
+        frame.rowconfigure(10, weight=1)
 
     def set_status(self, text: str) -> None:
         self.status_var.set(text)
@@ -137,34 +144,75 @@ class ClientApp:
 
     def _query_worker(self, query: str, endpoints: list[str]) -> None:
         try:
-            plan = prepare_query_plan(query, self.aui, self.config)
-            if len(endpoints) != plan.num_parties:
-                raise ValueError(f'Expected {plan.num_parties} CSP endpoints, got {len(endpoints)}')
-            responses = []
-            for party_id, base in enumerate(endpoints):
-                body = {
-                    'party_id': party_id,
-                    'tokens': plan.payloads[party_id],
-                    'security_param': plan.security_param,
+            plans: list[QueryPlan] = []
+            subquery_texts: list[str] = []
+            expansion_data = None
+            expansion_message = ''
+
+            if self.use_ai_var.get():
+                llm_callable = self._get_llm_callable()
+                expansion_message = self._llm_message
+                expanded_plan = prepare_query_plan_with_expansion(
+                    query,
+                    self.aui,
+                    self.config,
+                    llm_callable=llm_callable,
+                )
+                plans = expanded_plan.plans
+                subquery_texts = expanded_plan.query_texts
+                expansion_data = {
+                    'added_tokens': expanded_plan.expansion.added_tokens,
+                    'token_expansions': expanded_plan.expansion.token_expansions,
+                    'raw_responses': expanded_plan.expansion.raw_responses,
                 }
-                responses.append(http_post(base + '/eval', body))
-            combined_vecs, combined_proofs = combine_csp_responses(plan, responses, self.aui)
-            _, hits = decrypt_matches(plan, combined_vecs, self.aui, self.keys)
-            ok_verify = run_fx_hmac_verification(plan, combined_vecs, combined_proofs, self.aui, self.keys)
+            else:
+                plans = [prepare_query_plan(query, self.aui, self.config)]
+                subquery_texts = [query]
+
+            hits_union: set = set()
+            subqueries: list[dict] = []
+
+            for sub_query, plan in zip(subquery_texts, plans):
+                if len(endpoints) != plan.num_parties:
+                    raise ValueError(f'Expected {plan.num_parties} CSP endpoints, got {len(endpoints)}')
+                responses = []
+                for party_id, base in enumerate(endpoints):
+                    body = {
+                        'party_id': party_id,
+                        'tokens': plan.payloads[party_id],
+                        'security_param': plan.security_param,
+                    }
+                    responses.append(http_post(base + '/eval', body))
+                combined_vecs, combined_proofs = combine_csp_responses(plan, responses, self.aui)
+                _, hits = decrypt_matches(plan, combined_vecs, self.aui, self.keys)
+                ok_verify = run_fx_hmac_verification(plan, combined_vecs, combined_proofs, self.aui, self.keys)
+                hits_union.update(hits)
+                subqueries.append({
+                    'query': sub_query,
+                    'hits': hits,
+                    'verify': ok_verify,
+                })
+
+            hits_list = sorted(hits_union)
             dataset_path = self.dataset_path_var.get()
             rows: list[str] = []
             try:
                 import pandas as pd
                 raw_df = pd.read_csv(dataset_path, sep=';')
-                view = raw_df[raw_df['IPEDSID'].astype(str).isin([str(x) for x in hits])].head(20)
+                view = raw_df[raw_df['IPEDSID'].astype(str).isin([str(x) for x in hits_list])].head(20)
                 for idx, row in enumerate(view.to_dict('records'), 1):
                     rows.append(f"{idx}. [{row['IPEDSID']}] {row['NAME']} - {row['ADDRESS']}, {row['CITY']}, {row['STATE']} ({row.get('Geo Point', '')})")
             except Exception as exc:
                 rows.append(f'Failed to load dataset: {exc}')
+
             result = {
-                'verify': ok_verify,
-                'hits': hits,
+                'verify': all(item['verify'] for item in subqueries),
+                'hits': hits_list,
                 'rows': rows,
+                'original_query': query,
+                'subqueries': subqueries,
+                'expansion': expansion_data,
+                'expansion_message': expansion_message,
             }
             self.query_queue.put(('result', result))
         except Exception as exc:
@@ -183,7 +231,18 @@ class ClientApp:
                     self.output_box.delete('1.0', tk.END)
                     verify_text = 'pass' if payload['verify'] else 'fail'
                     self.output_box.insert(tk.END, f"Verify: {verify_text}\n")
-                    self.output_box.insert(tk.END, f"Matches: {len(payload['hits'])}\n\n")
+                    self.output_box.insert(tk.END, f"Total matches: {len(payload['hits'])}\n")
+                    if payload.get('expansion'):
+                        added = payload['expansion'].get('added_tokens', [])
+                        added_text = ', '.join(added) if added else 'None'
+                        self.output_box.insert(tk.END, f"Added keywords (OR): {added_text}\n")
+                    if payload.get('subqueries'):
+                        for idx, item in enumerate(payload['subqueries'], 1):
+                            q_verify = 'pass' if item['verify'] else 'fail'
+                            self.output_box.insert(tk.END, f"  Subquery {idx}: {item['query']} -> {len(item['hits'])} hits (verify {q_verify})\n")
+                    if payload.get('expansion_message'):
+                        self.output_box.insert(tk.END, payload['expansion_message'] + "\n")
+                    self.output_box.insert(tk.END, "\n")
                     for line in payload['rows']:
                         self.output_box.insert(tk.END, line + "\n")
                     self.output_box.configure(state=tk.DISABLED)
@@ -197,6 +256,24 @@ class ClientApp:
 
     def run(self) -> None:
         self.root.mainloop()
+
+    def _get_llm_callable(self):
+        if not self.use_ai_var.get():
+            return None
+        if self._llm_initialized:
+            return self._llm_callable
+        self._llm_initialized = True
+        if make_gemini_llm is None:
+            self._llm_message = 'Gemini package not installed; using fallback synonyms.'
+            self._llm_callable = None
+            return None
+        try:
+            self._llm_callable = make_gemini_llm()
+            self._llm_message = 'Gemini expansion active.'
+        except Exception as exc:
+            self._llm_callable = None
+            self._llm_message = f'Gemini unavailable ({exc}); using fallback synonyms.'
+        return self._llm_callable
 
 
 def main() -> None:
