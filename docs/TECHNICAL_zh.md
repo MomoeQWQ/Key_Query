@@ -1,122 +1,109 @@
-# 技术文档（中文）
+﻿# 技术文档 / Technical Notes
 
-## 概述
-
-本项目实现来源于 VPBRQSupL 思想的“可验证、抑制泄露”的空间-文本加密检索原型。核心组件包括：
-- 混淆布隆过滤器（GBF）
-- 分布式多点函数（DMPF，采用按位选择比特分享）
-- 前缀受限 PRF（FC.Cons/FC.Eval）与 XOR 同态 PRF（FX）
-
-Demo 当前实现“关键词部分”的密态查询、解密匹配与严格验证（FX+HMAC 等式），空间部分保留接口，可平滑扩展。
+> 本文档概述 ST-VLS（Spatio-Temporal Secure Search with Verifiable Leakage Suppression）项目的系统设计、核心算法实现与实验结果，并提供中文/英文双语说明。
 
 ---
 
-## 数据编码
+## 1. 概述 / Overview
 
-- 关键词与空间维度均可用 GBF 表示；Demo 仅使用关键词 GBF。
-- 关键词文本先“标准化分词”：大写 + 仅保留字母数字，丢弃其他字符；随后逐词加入 GBF。
-- GBF 参数：长度 `m`、哈希个数 `k`、单元位数 `psi`（字节数为 `psi/8`）。
-
----
-
-## Setup（索引构建）
-
-设数据库包含 `n` 个对象，ID 集合为 `{id_i}`。
-
-1) 一次性加密（Ke）
-- 对每个对象 `i`：`pad_i = F(Ke, (str(i)||id_i), (m1+m2)*bytes)`。
-- 关键词矩阵 `I_tex` 通过对各列与 `pad_i` 的列片段异或得到（按字节 XOR）。
-
-2) 受限 PRF（FC）与对象密钥 Ki
-- 选择前缀 `v`，计算 `Kv = FC.Cons(K_main, v)`；
-- `Ki = FC.Eval(Kv, i)`。
-
-3) XOR 同态 PRF（FX）
-- 对输入位串 `u`，`FX(K, u) = ⨁_{u_b=1} PRF(K, b)`；
-- 满足 `FX(K, u⊕v) = FX(K, u) ⊕ FX(K, v)`。
-
-4) 列聚合标签（sigma）
-- 对每一列 `j`：
-  - `sigma[j] = (⨁_i FX(Ki, I[:,j])) ⊕ HMAC(Kh, (j+m1)||cat_ids)`，
-  - 其中 `cat_ids = id_1||…||id_n`。
-
-最终得到认证索引（含加密矩阵与 `sigma`）。
+- **目标 Goal**：在不可信多云环境中，实现对加密时空数据的多关键字检索、泄露抑制与结果可验证。The project demonstrates how encrypted spatio-temporal queries can be executed with leakage suppression and client-side verification across multiple CSPs.
+- **核心技术 Core techniques**：Garbled Bloom Filter (GBF)、Distributed Multi-Point Function (DMPF) secret sharing、FX+HMAC 证明、PRP-based Cuckoo hashing，以及可选的 LLM 语义扩展。These components are packaged in the Python module `secure_search`.
 
 ---
 
-## 查询（关键词 + 空间路径）
+## 2. 系统实体与目录结构 / Entities & Repository Layout
 
-1) 规范化查询词；对每个词 `t` 计算 GBF 位置集合 `S(t)`。
-2) 将范围 `R` 离散为网格 cell token（`CELL:R{row}_C{col}`），每个 cell 也有对应的 `S(cell)`。
-3) PRP-based Cuckoo 分桶：将 `S(token)` 分配到 `M≈load*|S|` 个桶，每个元素有 `κ` 个候选桶（由 PRP(ζ, ·) 决定），选负载最轻的桶存放。
-4) DMPF 小域聚合：
-- 对每个桶，在“桶大小”的小域内生成按位选择比特分享，并对该桶内选列执行按字节 XOR 聚合（结果与证明）；
-- 跨桶 XOR 得到 token 级别结果与证明。
-5) 客户端合并
-- 对每个 token（关键词与空间 cell），将各方份额按字节 XOR 合并；关键词取 AND，空间 cell 取 OR，最终为 AND(keywords) ∩ OR(spatial)。
+| 实体 / Entity | 说明 Description |
+| --- | --- |
+| 数据拥有者 DO | 构建密态索引、分发密钥；脚本 `online_demo/owner_setup.py`。 |
+| 云服务商 CSP | 保持索引份额，响应查询；实现见 `online_demo/csp_server.py` 与 GUI 服务器。 |
+| 客户端 Client | 生成查询计划、聚合结果并验证；参考 `online_demo/client.py` 与 `gui_demo/client_gui.py`。 |
+| AI 扩展模块 | 可选的 LLM 扩展与关键词裁剪逻辑；位于 `secure_search/query_expansion.py`、`ai_pruning/`。 |
 
----
-
-## 解密与匹配
-
-- 对词 `t` 与对象 `i`：
-- 计算 `pad_acc(i,t)`：对 `pad_i` 在所选列（关键词或空间）的片段按字节 XOR 的累积；
-  - 明文向量 `plain(i,t) = combined_vec(i,t) ⊕ pad_acc(i,t)`；
-- 若 `plain(i,t)` 等于 `GBF.fingerprint(t)`，则对象 `i` 对该 token 匹配；多个关键词按 AND，多个空间 cell 按 OR，最终取 AND(keywords) ∩ OR(spatial)。
+> 完整仓库结构请查阅根目录 `Readme.md` 的“Repository Layout”表格。
 
 ---
 
-## 严格验证（FX+HMAC 等式）
+## 3. 密态索引流程 / Authenticated Index Pipeline
 
-对每个查询词 `t`，选择集合为 `S(t)`，验证：
+1. **数据预处理 Data preparation**：`prepare_dataset.py` 将 CSV 记录映射为包含经纬度、标签的 `SpatioTextualRecord`。
+2. **GBF 编码 GBF encoding**：`convert_dataset.py` 为每条记录构建关键词/空间 GBF 数组。Keyword tokens are uppercase alphanumeric strings via `QueryUtils.tokenize_normalized`.
+3. **一次性掩码 One-time pads**：`SetupProcess.Setup` 生成 `pad_i = F(Ke, str(i)||id_i)`，用以掩码 GBF 列数据并得到加密矩阵 `Ebp`, `EbW`。
+4. **受限 PRF 密钥 Object keys**：通过 `FC_Cons`/`FC_Eval` 派生 `Kv`、`Ki`，用于后续 FX 计算。
+5. **列认证标签 Column tags**：对每列计算
 
-```
-combined_proof(t)
-  = (⨁_i FX(Ki, plain(i,t))) ⊕ (⨁_i FX(Ki, pad_acc(i,t))) ⊕ N_S,ID
-```
+   ```
+   sigma[j] = (⊕_i FX(K_i, col_i[j])) ⊕ HMAC(K_h, label_j || cat_ids)
+   ```
 
-其中：
-- `Ki = FC.Eval(Kv, i)`；
-- `N_S,ID = ⨁_{j ∈ S(t)} HMAC(Kh, (j+m1)||cat_ids)`；
-- `combined_proof(t)` 为各方证明份额 XOR 合并结果。
-
-该验证与数据规模无关，仅与词个数、`lambda` 有关。
-
----
-
-## 泄露抑制
-
-- 访问模式：DMPF 跨多方分享，各方仅见份额；
-- 搜索模式：DMPF 份额含随机性；可选固定查询块数量（padding）与结果盲化（合并时抵消）。
+   其中 `cat_ids` 为所有记录 ID 的拼接。
+6. **产出索引 Output**：索引结构保存加密矩阵与 `sigma`；键材料 `(K_e, K_v, K_h)` 通过 `save_index_artifacts` 落盘。
 
 ---
 
-## 参数与权衡
+## 4. 查询与验证 / Query & Verification Flow
 
-- 增大 `m/k/psi` 可降低 FP，但增加 CPU 与内存；
-- `lambda` 控制 PRF/HMAC 输出长度；
-- Python Demo 为了清晰而牺牲速度：可通过“仅遍历选列、向量化 XOR、缓存 `Ki` 与 `pad` 片段”等方式提速。
+1. **查询规范化 Normalisation**：`secure_search.query.prepare_query_plan` 将输入拆分为关键词与可选的空间范围 token。范围 `R` 会被离散化为栅格 cell（`CELL:R{row}_C{col}`）。
+2. **Cuckoo 分桶 Bucketing**：针对每个 token 的 GBF 位置集合 `S(token)`，使用 PRP(seed) 生成 κ 个候选桶并选用负载较轻者，保持均匀访问模式。
+3. **DMPF 份额生成 Secret sharing**：`DMPF.Gen` 在每个桶内生成按位选择函数份额，使 `U` 个 CSP 各自仅知一份布尔向量。
+4. **CSP 侧聚合 CSP aggregation**：`online_demo/csp_server.py` 按份额选择列并执行按字节 XOR，得到密文向量与证明分片。
+5. **客户端合并 Client combination**：`combine_csp_responses` 汇总所有 CSP 的结果；`decrypt_matches` 用 `pad_i` 还原 GBF 指纹并执行 AND/OR 逻辑组合。
+6. **FX+HMAC 验证 Verification**：`run_fx_hmac_verification` 重算
 
----
+   ```
+   expected = (⊕_i FX(K_i, plaintext_i)) ⊕ (⊕_i FX(K_i, padAcc_i)) ⊕ N_{S,ID}
+   ```
 
-## 迭代历程（Changelog）
-
-- v0：GBF + 数值型 DMPF，非零即命中的演示路径。
-- v1：增加 HMAC 列标签与离线校验；引入 `offline_demo.py`。
-- v2：抑制泄露（padding/blinding），清理结构。
-- v3：论文对齐（XOR 路径）：DMPF 按位选择、按字节 XOR 聚合、解密与指纹对比，列表仅含相关项。
-- v4：严格验证（FX(Ki,·)+HMAC 等式），XOR 同态 FX 与完整等式校验。
-
----
-
-## 空间部分扩展（展望）
-
-- 采用空间 GBF（自有 `m1/k1`）并复用当前 DMPF + XOR 聚合框架；
-- 或按论文引入 PRP-based Cuckoo hashing + DMPF 的优化方案，范围内检索效率更高。
+   并与 CSP 提供的证明比对，验证是否有遗漏或篡改。Proof size depends only on the security parameter λ.
 
 ---
 
-## 注意事项
+## 5. AI 语义扩展 / AI-Assisted Expansion
 
-- Demo 代码更注重可读性与正确性，实际部署建议在 XOR 聚合、FX 计算与 pad 处理处进行向量化/缓存/并行化。
-- 标准化规则需在数据侧与查询侧严格一致，否则会出现“明文匹配为真/密态路径为假”的偏差。
+- **客户端执行 On-client execution**：`secure_search.expansion_client.prepare_query_plan_with_expansion` 可调用 LLM（默认 Gemini）或本地同义词表对用户查询进行扩展。
+- **泄露抑制 Leakage control**：扩展词集合会先按配置 (`suppression.max_r_blocks`) 截断，再进入秘密共享流程，避免访问模式暴露。
+- **实验数据 Experiments**：`docs/experiments/query_expansion/` 存放效果图与增量命中率统计；脚本 `scripts/demo_query_expansion.py` 可复现。
+
+---
+
+## 6. 性能评测 / Performance Evaluation
+
+- `docs/experiments/performance_study.py` 收集索引构建时间、查询延迟及多 CSP 扩展数据，输出 `metrics.json` 与三张核心图表：
+  - Index build scaling
+  - Query latency breakdown (baseline vs padding)
+  - CSP scaling curve
+- 关键结果 Key findings：
+  - 单关键词检索 ≈ 2.5 s；三关键词 ≈ 7.5 s；五关键词 ≈ 12.6 s。
+  - 启用泄露抑制后，长查询耗时下降约 20%。
+  - CSP 数量从 1 扩展至 4，整体延迟仅增加约 2%。
+
+---
+
+## 7. 创新点 / Highlights
+
+1. **多云协同 + 自验证 Multi-cloud with self-verification**：GBF + DMPF + FX/HMAC 组合在单轮交互内完成密态检索与结果完整性验证。
+2. **AI 扩展与泄露抑制协同**：LLM 生成的扩展词在本地进行截断与随机化，兼顾召回率与隐私。
+3. **可复现实验链路 Reproducible pipeline**：提供从脚本到图表的完整链条，方便论文撰写或系统迭代。
+
+---
+
+## 8. 配置与脚本索引 / Configuration & Scripts
+
+- `conFig.ini`：调节 Bloom filter 尺寸 (`m1`, `m2`, `psi`)、哈希次数 (`k_spa`, `k_tex`)、抑制策略 (`max_r_blocks`) 以及 CSP 数量 (`U`)。
+- 关键脚本 Key scripts：
+  - `online_demo/owner_setup.py` - Build index artifacts.
+  - `online_demo/run_all.py` - Launch 3 CSPs and a client for quick demo.
+  - `gui_demo/server_gui.py`, `gui_demo/client_gui.py` - GUI entry points.
+  - `scripts/pruning_benchmark.py` - Keyword pruning benchmark.
+  - `docs/experiments/performance_study.py` - Performance evaluation.
+
+---
+
+## 9. 未来工作 / Future Work
+
+- **动态更新 Dynamic updates**：实现增量索引刷新与权限撤销，降低重建成本。
+- **安全增强 Security hardening**：在联网部署中加入 TLS、认证、随机 nonce 及向量化 XOR；探索与 TEE/差分隐私结合。
+- **多模态查询 Multimodal queries**：扩展到图像/文本/空间联合检索，并评估联邦式部署。
+
+> 若需要更多细节，请参考 `docs/` 目录下的实验结果、参考文献以及结题报告。
+
